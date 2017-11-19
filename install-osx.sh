@@ -1,6 +1,6 @@
 #!/bin/bash
 
-build_repo() 
+build_repo()
 {
 	cd $1
 	mkdir build
@@ -18,9 +18,8 @@ report()
 # Install the homebrew package
 
 log="----------Installing/Updating Homebrew----------"; report
-check = $(which brew)
-if [ "$check" = "brew not found" ]
-/usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+if [ "$(which brew)" = "brew not found" ]
+then /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
 else
 brew update
 fi
@@ -28,27 +27,38 @@ fi
 # Install all the dependencies
 
 log="----------Installing dependencies----------"; report
-brew install gcc
-brew install cmake
-brew install boost
-brew install gsl
-brew install guile
+brew install gcc cmake boost gsl guile docker docker-compose docker-machine xhyve docker-machine-driver-xhyve
+
+log="----------Setting up docker----------"; report
+sudo chown root:wheel $(brew --prefix)/opt/docker-machine-driver-xhyve/bin/docker-machine-driver-xhyve
+sudo chmod u+s $(brew --prefix)/opt/docker-machine-driver-xhyve/bin/docker-machine-driver-xhyve
+docker-machine create default --driver xhyve --xhyve-experimental-nfs-share
+eval $(docker-machine env default)
+
 
 # Editing the bash_profile
 
 echo 'alias g++="g++-5 --std=c++1y -fext-numeric-literals"' >> ~/.bash_profile
 echo 'alias gcc="/usr/local/Cellar/gcc/5.1.0/bin/gcc-5"' >> ~/.bash_profile
-echo 'export CC="/usr/local/Cellar/gcc/5.1.0/bin/gcc-5"' >> ~/.bash_profile
-echo 'export CXX="g++-5 --std=c++1y -fext-numeric-literals"' >> ~/.bash_profile
+echo 'export CC="/usr/local/Cellar/gcc/5.1.0/bin/gcc-5"'
+echo 'export CXX="g++-5 --std=c++1y -fext-numeric-literals"'
 source ~/.bash_profile
 
 # Fetch OpenCog source repositories
 
 log="----------Fetching repositories from git----------"; report
-git clone git://github.com/opencog/cogutil
-git clone git://github.com/opencog/atomspace
-git clone git://github.com/opencog/moses
-git clone git://github.com/opencog/opencog
+log="-------------------------OC-----------------------"; report
+mkdir OC && cd OC
+git clone git@github.com:opencog/cogutil
+git clone git@github.com:opencog/atomspace
+git clone git@github.com:opencog/moses
+git clone git@github.com:opencog/opencog
+git clone git@github.com:opencog/semantic-vision.git
+git clone git@github.com:opencog/link-grammar.git
+git clone git@github.com:opencog/loving-ai.git
+git clone git@github.com:opencog/external-tools.git
+git clone git@github.com:opencog/docker.git
+
 
 # Set environment path variables
 
@@ -69,14 +79,4 @@ sed -i '1i\
 ' $file
 sed -i '0,/if __GNUC__/s/if __GNUC__/if __GNUC__ \&\& INIT_PRIORITY \&\& ((GCC_VERSION >= 40300) || (CLANG_VERSION >= 20900))/' $file
 
-# Make and build repositories
-
-log="----------Building Cogutil----------"; report
-build_repo cogutil
-log="----------Building atomspace----------"; report
-build_repo atomspace
-log="----------Building MOSES----------"; report
-build_repo moses
-log="----------Building OpenCog----------"; report
-build_repo opencog
-log="----------Successfully Built----------"; report
+./../OC/build_osx.sh
