@@ -76,6 +76,8 @@ UBUNTU_ISO_IMAGE=$CURRENT_DIR/$UBUNTU_ISO #default location
 SELF_NAME=$(basename $0)
 TOOL_NAME=octool
 
+GUILEVERSION=2.2.3
+
 PROCESSORS=$(grep "^processor" /proc/cpuinfo | wc -l)
 MAKE_JOBS=$(($PROCESSORS+0))
 
@@ -126,14 +128,13 @@ PACKAGES_BUILD="
 		cmake \
 		cxxtest \
 		rlwrap \
-		guile-2.0-dev \
 		libiberty-dev \
 		libicu-dev \
 		libbz2-dev \
 		cython \
-		python-dev \
-		python-zmq \
-		python-simplejson \
+		python3-dev \
+		python3-zmq \
+		python3-simplejson \
 		libboost-date-time-dev \
 		libboost-filesystem-dev \
 		libboost-math-dev \
@@ -167,6 +168,10 @@ PACKAGES_BUILD="
 		wordnet \
 		wordnet-dev \
 		wordnet-sense-index \
+		libatomic-ops-dev\
+		libgmp-dev \
+		libffi-dev \
+		libreadline-dev \
 		"
 		#liblua5.1-0-dev \
 		#libxmlrpc-c3-dev \
@@ -331,19 +336,20 @@ if [ "$SELF_NAME" == "$TOOL_NAME" ] ; then
   echo "Usage: $SELF_NAME OPTION"
   echo " -r Add software repositories"
   echo " -d Install base/system build dependencies"
-  echo " -o Install dependencies and download data for the opencog repo"
   echo " -p Install python build dependencies"
   echo " -s Install haskell build dependencies in user space. Don't use sudo"
   echo " -i Install build-job artifacts"
   echo " -c Install Cogutil"
-  echo " -a Install Atomspace"
-  echo " -l Install Link Grammar"
+  echo " -a Install AtomSpace"
+  echo " -o Install OpenCog"
+  echo " -l {default|java} For installing Link Grammar with java binding '-l java' else '-l default'"
   echo " -m Install MOSES"
-  echo " -g Install Guile 2.2"
+  echo " -g Install Guile $GUILEVERSION"
   echo " -b Build source code in git worktree found @ $PWD"
   echo " -e Build examples in git worktree found @ $PWD"
   echo " -t Run tests of source code in git worktree found @ $PWD"
   echo " -j [jobs] override number of auto-detected make jobs"
+  echo " -w download data for the opencog repo"
   echo " -v Verbose output for 'apt-get' commands"
   echo " -h This help message"
 else
@@ -370,15 +376,23 @@ fi
 if [ $# -eq 0 ] ; then NO_ARGS=true ; fi
 
 if [ "$SELF_NAME" == "$TOOL_NAME" ] ; then
-  while getopts "abdegipcrstlmhvj:o" flag ; do
+  while getopts "abdegipcrstl:mhvj:ow" flag ; do
     case $flag in
       r)	ADD_REPOSITORIES=true ;;
       d)	INSTALL_DEPENDENCIES=true ;; #base development packages
-      o)	INSTALL_OPENCOG_DEPENDENCIES=true ;; #base development packages
+      w)	DOWNLOAD_DATA=true ;;
       p)	INSTALL_OPENCOG_PYTHON_PACKAGES=true ;;
       c)	INSTALL_COGUTIL=true ;;
       a)	INSTALL_ATOMSPACE=true ;;
-      l)	INSTALL_LINK_GRAMMAR=true ;;
+      o)	INSTALL_OPENCOG=true ;;
+      l)	if [ "$OPTARG" == "default" ]; then
+        	  INSTALL_LINK_GRAMMAR=true
+        	elif [ "$OPTARG" == "java" ]; then
+        	  INSTALL_JAVA_LINK_GRAMMAR=true
+        	else
+        	  MESSAGE="If you want java binding run '-l java' else '-l default'"
+        	  message ; exit 1
+        	fi ;;
       m)	INSTALL_MOSES=true ;;
       g)	INSTALL_GUILE=true ;;
       b)	BUILD_SOURCE=true ;;
@@ -389,7 +403,7 @@ if [ "$SELF_NAME" == "$TOOL_NAME" ] ; then
       s)    HASKELL_STACK_SETUP=true;;
       i)    INSTALL_BUILD=true ;;
       h)	usage ;;
-      \?)	usage ;;
+      \?)	usage; exit 1 ;;
       *)  UNKNOWN_FLAGS=true ;;
     esac
   done
@@ -569,6 +583,23 @@ sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main
 # sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys B01FA116
 sudo apt-key adv --keyserver hkp://ha.pool.sks-keyservers.net:80 --recv-key 421C365BD9FF1F717815A3895523BAEEB01FA116
 sudo apt-get $QUIET --assume-yes update
+}
+
+get_github_latest_release() {
+  local _user="$1"
+  local _repo="$2"
+  local _file_name="$3"
+
+  # Getting the version and also accepting the file-name means that the
+  # download will fail if the release is updated and the file-name has a
+  # reference to the previous release, a hacky annoying reminder. If the
+  # file-name has no reference to the version then all will go well.
+  # TODO: Handle failure gracefully.
+  local _version=$(curl https://github.com/"$_user"/"$_repo"/releases/latest \
+    | cut -d "\"" -f 2 | cut -d "/" -f 8)
+  echo $_user $_repo $_version
+  rm -f $_file_name
+  wget https://github.com/"$_user"/"$_repo"/releases/download/"$_version"/"$_file_name"
 }
 
 install_admin() {
@@ -794,6 +825,26 @@ rm -rf master.tar.gz atomspace-master/
 cd $CURRENT_DIR
 }
 
+# Install OpenCog
+install_opencog(){
+MESSAGE="Installing opencog...." ; message
+cd /tmp/
+# cleaning up remnants from previous install failures, if any.
+rm -rf master.tar.gz* opencog-master
+wget https://github.com/opencog/opencog/archive/master.tar.gz
+tar -xvf master.tar.gz
+cd opencog-master/
+mkdir build
+cd build/
+cmake ..
+make -j$(nproc)
+sudo make install
+sudo ldconfig
+cd /tmp/
+rm -rf master.tar.gz opencog-master/
+cd $CURRENT_DIR
+}
+
 # Install MOSES
 install_moses(){
 MESSAGE="Installing MOSES...." ; message
@@ -820,13 +871,23 @@ MESSAGE="Installing Link-Grammar...." ; message
 cd /tmp/
 # cleaning up remnants from previous install failures, if any.
 rm -rf link-grammar-5.*/
-wget -r --no-parent -nH --cut-dirs=2 http://www.abisource.com/downloads/link-grammar/current/
-tar -zxf current/link-grammar-5*.tar.gz
-rm -r current
+if [ $# -eq 1 ]; then
+  wget http://www.abisource.com/downloads/link-grammar/${1}/link-grammar-${1}.tar.gz
+  tar -zxf link-grammar-5*.tar.gz
+else
+  wget -r --no-parent -nH --cut-dirs=2 \
+    http://www.abisource.com/downloads/link-grammar/current/
+  tar -zxf current/link-grammar-5*.tar.gz
+  rm -r current
+fi
 cd link-grammar-5.*/
 mkdir build
 cd build
-../configure
+if [ $INSTALL_JAVA_LINK_GRAMMAR ]; then
+  ../configure
+else
+  ../configure --disable-java-bindings
+fi
 make -j$(nproc)
 sudo make install
 sudo ldconfig
@@ -861,25 +922,49 @@ if [[ "$UBUNTU_VERSION" == "\"14.04\"" ]]; then
     cd $CURRENT_DIR
 elif [[ "$UBUNTU_VERSION" == "\"16.04\"" ]]; then
     sudo apt-get install -y libcpprest
+elif [[ "$UBUNTU_VERSION" == "\"17.10\"" ]]; then
+    sudo apt-get install -y libcpprest
 fi
 }
 
+install_bdwgc(){
+MESSAGE="Installing latest bdwgc ...." ; message
+local _version=$(curl https://github.com/ivmai/bdwgc/releases/latest \
+    | cut -d "\"" -f 2 | cut -d "/" -f 8)
+local _dir_name="gc-${_version:1}"
+local _file_name="${_dir_name}.tar.gz"
+cd /tmp/
+rm -rf ${_dir_name}*
+get_github_latest_release ivmai bdwgc ${_file_name}
+tar -xvf ${_file_name}
+cd ${_dir_name}
+./configure
+make -j$(nproc)
+sudo make install
+sudo ldconfig
+cd /tmp/
+rm -rf ${_dir_name}*
+}
+
 install_guile(){
-MESSAGE="Installing guile-2.2...." ; message
+MESSAGE="Installing guile-$GUILEVERSION...." ; message
 cd /tmp/
 # Clean up remnants from previous install failures, if any.
-rm -rf guile-2.2.2*
+rm -rf guile-${GUILEVERSION}*
 # Install dependency for the build.
 sudo apt-get install -y libunistring-dev
-wget https://ftp.gnu.org/gnu/guile/guile-2.2.2.tar.gz
-tar -xvf guile-2.2.2.tar.gz
-cd guile-2.2.2
+wget https://ftp.gnu.org/gnu/guile/guile-$GUILEVERSION.tar.gz
+tar -xvf guile-$GUILEVERSION.tar.gz
+cd guile-$GUILEVERSION
 mkdir build
 cd build
 ../configure
 make -j$(nproc)
 sudo make install
+sudo mv  /usr/local/lib/libguile-2.2.so.1.3.0-gdb.scm /usr/share/gdb/auto-load/
 sudo ldconfig
+cd /tmp/
+rm -rf guile-${GUILEVERSION}*
 }
 
 # Install ros-behavior-scripting
@@ -900,6 +985,17 @@ rm -rf master.tar.gz ros-behavior-scripting-master/
 cd $CURRENT_DIR
 }
 
+# atomspace unit tests have UTF-8 test cases
+ensure_UTF_installed(){
+    if locale -a | grep -q en_US.utf8
+    then
+	echo UTF-8 locale enabled already
+    else
+        sudo sh -c 'echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen'
+        sudo locale-gen
+    fi
+}
+
 # Install system dependencies
 install_dependencies() {
 MESSAGE="Installing OpenCog build dependencies...." ; message
@@ -911,27 +1007,36 @@ if [ "$UBUNTU_VERSION" == "\"14.04\"" ]; then
       exit 1
     fi
 elif [[ "$UBUNTU_VERSION" = "\"16.04\"" ]]; then
-    if ! sudo apt-get $QUIET --no-upgrade --assume-yes install $PACKAGES_BUILD $PACKAGES_RUNTIME $PACKAGES_FETCH liboctomap-dev ; then
+    if ! sudo apt-get $QUIET --no-upgrade --assume-yes install $PACKAGES_BUILD $PACKAGES_RUNTIME $PACKAGES_FETCH liboctomap-dev locales ; then
         exit 1
     fi
+    ensure_UTF_installed
+elif [[ "$UBUNTU_VERSION" = "\"17.10\"" ]]; then
+    if ! sudo apt-get $QUIET --no-upgrade --assume-yes install $PACKAGES_BUILD $PACKAGES_RUNTIME $PACKAGES_FETCH liboctomap-dev locales ; then
+        exit 1
+    fi
+    ensure_UTF_installed
 fi
 
 install_cpprest
+# Install guile >2.2 also install bdwgc for language-learning
+install_bdwgc && install_guile
 }
 
 # Download data
 download_data() {
-  MESSAGE="Downloading OpenCog's sample datasets ...." ; message
-  DOWNLOAD_DIR="/var/opencog/data"
+  DOWNLOAD_DIR="$HOME/.opencog/data"
+  MESSAGE="Downloading OpenCog's datasets to $DOWNLOAD_DIR ...." ; message
   if [ ! -d "$DOWNLOAD_DIR" ]; then
-    sudo mkdir -p "$DOWNLOAD_DIR"
+    mkdir -p "$DOWNLOAD_DIR"
   fi
 
   if [ ! -f "$DOWNLOAD_DIR/gtwc-en-333333-words.scm" ]; then
-    sudo wget -O "$DOWNLOAD_DIR/gtwc-en-333333-words.scm" \
+    wget -O "$DOWNLOAD_DIR/gtwc-en-333333-words.scm" \
       https://raw.githubusercontent.com/opencog/test-datasets/master/concept_nodes/gtwc-en-333333-words.scm
   fi
 }
+
 update_opencog_source() {
 if sudo apt-get --no-upgrade --assume-yes $QUIET install $PACKAGES_FETCH ; then
   echo -n
@@ -1158,22 +1263,24 @@ cleanup_iso
 # This is mainly for configuring workspaces depending on the type
 # of project being worked on. The order here matters.
 if [ "$SELF_NAME" == "$TOOL_NAME" ] ; then
+    if [ $UNKNOWN_FLAGS ] ; then usage; exit 1 ; fi
+    if [ $NO_ARGS ] ; then usage; exit 1 ; fi
     if [ $ADD_REPOSITORIES ] ; then add_repositories ; fi
     if [ $INSTALL_DEPENDENCIES ] ; then install_dependencies ; fi
-    if [ $INSTALL_OPENCOG_DEPENDENCIES ] ; then download_data ; fi
+    if [ $DOWNLOAD_DATA ] ; then download_data ; fi
     if [ $HASKELL_STACK_SETUP ] ; then install_haskell_dependencies ; fi
     if [ $INSTALL_OPENCOG_PYTHON_PACKAGES ] ; then install_opencog_python_packages ; fi
     if [ $INSTALL_COGUTIL ] ; then install_cogutil ; fi
     if [ $INSTALL_ATOMSPACE ] ; then install_atomspace ; fi
-    if [ $INSTALL_LINK_GRAMMAR ] ; then install_link_grammar ; fi
+    if [ $INSTALL_OPENCOG ] ; then install_opencog ; fi
+    if [ $INSTALL_LINK_GRAMMAR ] ; then install_link_grammar 5.4.3 ; fi
+    if [ $INSTALL_JAVA_LINK_GRAMMAR ] ; then install_link_grammar 5.4.3 ; fi
     if [ $INSTALL_MOSES ] ; then install_moses ; fi
-    if [ $INSTALL_GUILE ] ; then install_guile ; fi
+    if [ $INSTALL_GUILE ] ; then install_bdwgc && install_guile ; fi
     if [ $BUILD_SOURCE ] ; then build_source ; fi
     if [ $BUILD_EXAMPLES ] ; then build_examples ; fi
     if [ $TEST_SOURCE ] ; then install_build && test_source ; fi
     if [ $INSTALL_BUILD ] ; then install_build ; fi
-    if [ $UNKNOWN_FLAGS ] ; then usage ; fi
-    if [ $NO_ARGS ] ; then usage ; fi
 exit 0
 fi
 
