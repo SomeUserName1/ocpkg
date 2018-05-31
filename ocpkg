@@ -342,7 +342,7 @@ if [ "$SELF_NAME" == "$TOOL_NAME" ] ; then
   echo " -c Install Cogutil"
   echo " -a Install AtomSpace"
   echo " -o Install OpenCog"
-  echo " -l {default|java} For installing Link Grammar with java binding '-l java' else '-l default'"
+  echo " -l Install relex and Link Grammar with java bindings"
   echo " -m Install MOSES"
   echo " -g Install Guile $GUILEVERSION"
   echo " -b Build source code in git worktree found @ $PWD"
@@ -385,14 +385,7 @@ if [ "$SELF_NAME" == "$TOOL_NAME" ] ; then
       c)	INSTALL_COGUTIL=true ;;
       a)	INSTALL_ATOMSPACE=true ;;
       o)	INSTALL_OPENCOG=true ;;
-      l)	if [ "$OPTARG" == "default" ]; then
-        	  INSTALL_LINK_GRAMMAR=true
-        	elif [ "$OPTARG" == "java" ]; then
-        	  INSTALL_JAVA_LINK_GRAMMAR=true
-        	else
-        	  MESSAGE="If you want java binding run '-l java' else '-l default'"
-        	  message ; exit 1
-        	fi ;;
+      l)	INSTALL_RELEX=TRUE ;;
       m)	INSTALL_MOSES=true ;;
       g)	INSTALL_GUILE=true ;;
       b)	BUILD_SOURCE=true ;;
@@ -865,34 +858,14 @@ rm -rf master.tar.gz moses-master/
 cd $CURRENT_DIR
 }
 
-# Install Link-Grammar
-install_link_grammar(){
-MESSAGE="Installing Link-Grammar...." ; message
+# Install relex
+install_relex(){
+MESSAGE="Installing relex & Link-Grammar...." ; message
 cd /tmp/
-# cleaning up remnants from previous install failures, if any.
-rm -rf link-grammar-5.*/
-if [ $# -eq 1 ]; then
-  wget http://www.abisource.com/downloads/link-grammar/${1}/link-grammar-${1}.tar.gz
-  tar -zxf link-grammar-5*.tar.gz
-else
-  wget -r --no-parent -nH --cut-dirs=2 \
-    http://www.abisource.com/downloads/link-grammar/current/
-  tar -zxf current/link-grammar-5*.tar.gz
-  rm -r current
-fi
-cd link-grammar-5.*/
-mkdir build
-cd build
-if [ $INSTALL_JAVA_LINK_GRAMMAR ]; then
-  ../configure
-else
-  ../configure --disable-java-bindings
-fi
-make -j$(nproc)
-sudo make install
-sudo ldconfig
-cd /tmp/
-rm -rf link-grammar-5.*/
+git clone https://github.com/opencog/relex
+cd relex
+install-scripts/install-ubuntu-dependencies.sh
+rm -rf relex
 cd $CURRENT_DIR
 }
 
@@ -1273,8 +1246,7 @@ if [ "$SELF_NAME" == "$TOOL_NAME" ] ; then
     if [ $INSTALL_COGUTIL ] ; then install_cogutil ; fi
     if [ $INSTALL_ATOMSPACE ] ; then install_atomspace ; fi
     if [ $INSTALL_OPENCOG ] ; then install_opencog ; fi
-    if [ $INSTALL_LINK_GRAMMAR ] ; then install_link_grammar 5.4.3 ; fi
-    if [ $INSTALL_JAVA_LINK_GRAMMAR ] ; then install_link_grammar 5.4.3 ; fi
+    if [ $INSTALL_RELEX ] ; then install_relex ; fi
     if [ $INSTALL_MOSES ] ; then install_moses ; fi
     if [ $INSTALL_GUILE ] ; then install_bdwgc && install_guile ; fi
     if [ $BUILD_SOURCE ] ; then build_source ; fi
