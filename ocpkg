@@ -376,7 +376,7 @@ fi
 if [ $# -eq 0 ] ; then NO_ARGS=true ; fi
 
 if [ "$SELF_NAME" == "$TOOL_NAME" ] ; then
-  while getopts "abdegipcrstl:mhvj:ow" flag ; do
+  while getopts "abdegipcrstlmhvj:ow" flag ; do
     case $flag in
       r)	ADD_REPOSITORIES=true ;;
       d)	INSTALL_DEPENDENCIES=true ;; #base development packages
